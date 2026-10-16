@@ -17,12 +17,11 @@ load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 MC_HOST = os.getenv("MINECRAFT_HOST", "").strip()
-MC_PORT = int(os.getenv("MINECRAFT_PORT", "43960"))
 CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", "0"))
 
 CHECK_INTERVAL = 5
 REQUEST_TIMEOUT = 3
-CONFIRM_CHECKS = 1
+CONFIRM_CHECKS = 2
 
 
 # ============================================================
@@ -68,28 +67,6 @@ def classify_version(version):
         return False
 
     return True
-
-
-async def tcp_is_reachable(host, port):
-    writer = None
-
-    try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port),
-            timeout=3,
-        )
-        return True
-
-    except (OSError, asyncio.TimeoutError):
-        return False
-
-    finally:
-        if writer is not None:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
 
 
 async def get_server_status():
@@ -138,11 +115,9 @@ async def get_server_status():
     except Exception as error:
         print(f"[DNS SRV] Lookup failed: {error}")
 
-    # Keep the configured endpoint as a fallback.
-    fallback = (MC_HOST, MC_PORT)
-
-    if fallback not in endpoints:
-        endpoints.append(fallback)
+    if not endpoints:
+        print("[STATUS] No SRV endpoint; treating as UNKNOWN.")
+        return None
 
     for host, port in endpoints:
         try:
@@ -183,13 +158,8 @@ async def get_server_status():
                 f"{type(error).__name__}: {error}"
             )
 
-            if await tcp_is_reachable(host, port):
-                print(
-                    f"[TCP REACHABLE] {host}:{port} | "
-                    "Status ping failed; possible online state."
-                )
-                return True
-
+            # The Aternos proxy accepts TCP connections even while the
+            # server is offline, so a raw connect proves nothing.
             saw_unknown = True
 
     if saw_starting:
@@ -214,7 +184,6 @@ async def print_initial_server_status():
     print("INITIAL MINECRAFT SERVER CHECK")
     print("=" * 55)
     print(f"Hostname: {MC_HOST}")
-    print(f"Configured port: {MC_PORT}")
 
     result = await get_server_status()
 
